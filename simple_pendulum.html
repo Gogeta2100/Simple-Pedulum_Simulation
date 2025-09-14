@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simple Pendulum — Interactive Simulation</title>
+  <style>
+    :root{
+      --bg:#0f1724; /* dark navy */
+      --card:#0b1220;
+      --muted:#9aa7b2;
+      --accent:#7dd3fc; /* cyan */
+      --glass: rgba(255,255,255,0.03);
+      --glass-2: rgba(255,255,255,0.02);
+      --radius:14px;
+      --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;color:#e6eef6;background:linear-gradient(180deg,#071025 0%, #081226 60%);}
+    .app{display:grid;grid-template-columns:320px 1fr 320px;gap:18px;padding:20px;height:100vh;align-items:stretch}
+
+    /* Left column: graph */
+    .panel{background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:0 6px 20px rgba(2,6,23,0.6);}
+    .panel h3{margin:0 0 8px 0;font-weight:600}
+    .graph-wrap{height:100%;display:flex;flex-direction:column}
+    canvas{display:block;width:100%;height:100%;border-radius:10px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));}
+
+    /* Center: pendulum */
+    .stage{display:flex;flex-direction:column;justify-content:center;align-items:center;padding:14px}
+    .sim-area{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));width:100%;height:80vh;border-radius:var(--radius);display:flex;align-items:flex-start;justify-content:center;position:relative;overflow:hidden}
+    .pivot{position:absolute;top:40px;left:50%;transform:translateX(-50%);width:6px;height:6px;border-radius:3px;background:var(--accent);box-shadow:0 0 10px rgba(125,211,252,0.6)}
+
+    /* Right column: controls */
+    .controls{display:flex;flex-direction:column;gap:12px}
+    .row{display:flex;gap:8px;align-items:center}
+    label{font-size:13px;color:var(--muted);min-width:84px}
+    input[type=range]{flex:1}
+    .value{min-width:68px;text-align:right;font-family:var(--mono);color:var(--accent)}
+
+    .big-stats{display:flex;flex-direction:column;gap:10px;padding:10px;border-radius:12px;background:var(--glass)}
+    .stat{display:flex;justify-content:space-between;align-items:center;padding:8px;border-radius:8px;background:var(--glass-2)}
+    .stat .label{color:var(--muted);font-size:13px}
+    .stat .num{font-family:var(--mono);font-weight:600;color:#e6eef6}
+
+    .controls .buttons{display:flex;gap:8px}
+    button{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);color:var(--accent);padding:8px 12px;border-radius:10px;cursor:pointer}
+    .toggle{display:inline-flex;align-items:center;background:rgba(255,255,255,0.02);padding:6px;border-radius:999px}
+    .mode{font-weight:600;padding:6px 10px;border-radius:8px}
+
+    footer{position:fixed;left:20px;right:20px;bottom:20px;color:var(--muted);font-size:13px;text-align:center}
+
+    @media (max-width:1000px){.app{grid-template-columns:1fr;grid-auto-rows:auto} .sim-area{height:60vh}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Left: Graph -->
+    <section class="panel graph-wrap">
+      <h3>Oscillation graph</h3>
+      <small style="color:var(--muted)">Angle vs time (radians) — shows damping in real mode</small>
+      <div style="flex:1;margin-top:10px;">
+        <canvas id="graphCanvas"></canvas>
+      </div>
+    </section>
+
+    <!-- Center: Simulation -->
+    <section class="panel stage">
+      <h3 style="width:100%;">Pendulum</h3>
+      <div class="sim-area" id="simArea">
+        <div class="pivot" id="pivot"></div>
+        <canvas id="pendulumCanvas" style="width:100%;height:100%"></canvas>
+      </div>
+      <div style="margin-top:12px;width:100%;display:flex;justify-content:center;gap:12px">
+        <div class="toggle" id="modeToggle">
+          <div class="mode" id="idealBtn" style="background:var(--accent);color:#042028">Ideal</div>
+          <div class="mode" id="realBtn" style="opacity:0.6">Real</div>
+        </div>
+        <div class="buttons">
+          <button id="startBtn">Start</button>
+          <button id="pauseBtn">Pause</button>
+          <button id="resetBtn">Reset</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right: Controls & Stats -->
+    <aside class="panel controls">
+      <h3>Controls & measurements</h3>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="row">
+          <label>Length (m)</label>
+          <input id="length" type="range" min="0.2" max="3" step="0.01" value="1">
+          <div class="value" id="lengthVal">1.00</div>
+        </div>
+        <div class="row">
+          <label>Mass (kg)</label>
+          <input id="mass" type="range" min="0.05" max="5" step="0.01" value="1">
+          <div class="value" id="massVal">1.00</div>
+        </div>
+        <div class="row">
+          <label>Gravity (m/s²)</label>
+          <input id="gravity" type="range" min="0.1" max="30" step="0.1" value="9.81">
+          <div class="value" id="gravityVal">9.81</div>
+        </div>
+        <div class="row">
+          <label>Damping</label>
+          <input id="damping" type="range" min="0" max="1.2" step="0.01" value="0.05">
+          <div class="value" id="dampingVal">0.05</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="big-stats">
+          <div class="stat"><div class="label">Period (T)</div><div class="num" id="period">—</div></div>
+          <div class="stat"><div class="label">Angle (θ)</div><div class="num" id="angle">0.00°</div></div>
+          <div class="stat"><div class="label">Angular speed (ω)</div><div class="num" id="omega">0.000</div></div>
+          <div class="stat"><div class="label">Linear speed (v)</div><div class="num" id="speed">0.000</div></div>
+          <div class="stat"><div class="label">Kinetic Energy</div><div class="num" id="ke">0.000 J</div></div>
+          <div class="stat"><div class="label">Potential Energy</div><div class="num" id="pe">0.000 J</div></div>
+          <div class="stat"><div class="label">Total Energy</div><div class="num" id="te">0.000 J</div></div>
+        </div>
+      </div>
+
+      <div style="margin-top:auto;color:var(--muted);font-size:13px">
+        <p><strong>Notes:</strong> Mass does <em>not</em> change small-angle period (T = 2π√(L/g)). Mass affects damping and energy. In <em>Ideal</em> mode damping is set to 0.</p>
+      </div>
+    </aside>
+  </div>
+
+  <footer>Drag & hold the bob to set an initial displacement. Release to start oscillation. Deploy this single file to Netlify by uploading <code>index.html</code>.</footer>
+
+  <script>
+  // --- Utility and DOM ---
+  const pendulumCanvas = document.getElementById('pendulumCanvas');
+  const graphCanvas = document.getElementById('graphCanvas');
+  const simArea = document.getElementById('simArea');
+  const pivotEl = document.getElementById('pivot');
+
+  // resolution-aware canvas setup
+  function resizeCanvasToDisplaySize(canvas){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.floor(rect.width * dpr));
+    const h = Math.max(1, Math.floor(rect.height * dpr));
+    if (canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h;
+      return true;
+    }
+    return false;
+  }
+
+  // Canvas contexts
+  const pctx = pendulumCanvas.getContext('2d');
+  const gctx = graphCanvas.getContext('2d');
+
+  // DOM controls
+  const lengthInput = document.getElementById('length');
+  const massInput = document.getElementById('mass');
+  const gravityInput = document.getElementById('gravity');
+  const dampingInput = document.getElementById('damping');
+
+  const lengthVal = document.getElementById('lengthVal');
+  const massVal = document.getElementById('massVal');
+  const gravityVal = document.getElementById('gravityVal');
+  const dampingVal = document.getElementById('dampingVal');
+
+  const periodEl = document.getElementById('period');
+  const angleEl = document.getElementById('angle');
+  const omegaEl = document.getElementById('omega');
+  const speedEl = document.getElementById('speed');
+  const keEl = document.getElementById('ke');
+  const peEl = document.getElementById('pe');
+  const teEl = document.getElementById('te');
+
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const idealBtn = document.getElementById('idealBtn');
+  const realBtn = document.getElementById('realBtn');
+
+  // Simulation state
+  let L = parseFloat(lengthInput.value);    // length (m)
+  let m = parseFloat(massInput.value);      // mass (kg)
+  let g = parseFloat(gravityInput.value);   // gravity m/s^2
+  let b = parseFloat(dampingInput.value);   // damping b (N*m*s)
+
+  let mode = 'real'; // 'ideal' or 'real'
+  let running = false;
+
+  // Pendulum state (angle in radians, ω in rad/s)
+  let theta = Math.PI/6; // initial 30deg
+  let omega = 0;
+
+  // Graph history
+  const history = {t:[], theta:[]};
+  const maxHistorySeconds = 30;
+
+  // timing
+  let lastTime = null;
+  let simTime = 0;
+
+  // Dragging
+  let isDragging = false;
+  let dragId = null;
+
+  // visual params
+  function pixelsPerMeter(){
+    // choose a scale based on sim-area height
+    const rect = simArea.getBoundingClientRect();
+    return (rect.height * 0.35) / L; // so pendulum fits comfortably
+  }
+
+  // --- Physics ---
+  function dynamics(theta, omega, params){
+    // returns [dtheta/dt, domega/dt]
+    const {g, L, m, b} = params;
+    const I = m * L * L; // moment of inertia for point mass at distance L
+    const dampTerm = (b / I) * omega; // angular damping contribution
+    const domega = - (g / L) * Math.sin(theta) - dampTerm;
+    return [omega, domega];
+  }
+
+  // RK4 integrator step for the 1st-order system
+  function rk4Step(theta, omega, dt, params){
+    const f = dynamics;
+    const [k1a, k1b] = f(theta, omega, params);
+    const [k2a, k2b] = f(theta + 0.5*dt*k1a, omega + 0.5*dt*k1b, params);
+    const [k3a, k3b] = f(theta + 0.5*dt*k2a, omega + 0.5*dt*k2b, params);
+    const [k4a, k4b] = f(theta + dt*k3a, omega + dt*k3b, params);
+
+    const thetaNext = theta + (dt/6)*(k1a + 2*k2a + 2*k3a + k4a);
+    const omegaNext = omega + (dt/6)*(k1b + 2*k2b + 2*k3b + k4b);
+    return [thetaNext, omegaNext];
+  }
+
+  // --- Drawing ---
+  function drawPendulum(){
+    resizeCanvasToDisplaySize(pendulumCanvas);
+    const cw = pendulumCanvas.width; const ch = pendulumCanvas.height;
+    pctx.clearRect(0,0,cw,ch);
+
+    // pivot position
+    const pivotX = cw/2; const pivotY = Math.min(80, ch*0.08);
+
+    // compute bob position
+    const scale = pixelsPerMeter();
+    const bobX = pivotX + Math.sin(theta) * L * scale;
+    const bobY = pivotY + Math.cos(theta) * L * scale;
+
+    // rope
+    pctx.lineWidth = Math.max(2, 2 * (window.devicePixelRatio || 1));
+    pctx.beginPath();
+    pctx.moveTo(pivotX, pivotY);
+    pctx.lineTo(bobX, bobY);
+    pctx.strokeStyle = 'rgba(150,200,255,0.9)';
+    pctx.stroke();
+
+    // bob shadow
+    const bobR = Math.max(10, 16 * Math.sqrt(m));
+    pctx.beginPath();
+    pctx.ellipse(bobX, bobY + 6, bobR*1.12, bobR*0.5, 0, 0, Math.PI*2);
+    pctx.fillStyle = 'rgba(2,6,23,0.6)'; pctx.fill();
+
+    // bob
+    pctx.beginPath();
+    pctx.arc(bobX, bobY, bobR, 0, Math.PI*2);
+    pctx.fillStyle = 'linear-gradient(180deg, #7dd3fc, #0369a1)';
+    // gradient
+    const ggrad = pctx.createLinearGradient(bobX-bobR, bobY-bobR, bobX+bobR, bobY+bobR);
+    ggrad.addColorStop(0, '#7dd3fc'); ggrad.addColorStop(1, '#0369a1');
+    pctx.fillStyle = ggrad;
+    pctx.fill();
+
+    // bob outline
+    pctx.lineWidth = 2; pctx.strokeStyle = 'rgba(0,0,0,0.25)'; pctx.stroke();
+
+    // small pivot draw
+    pctx.beginPath(); pctx.arc(pivotX, pivotY, 4, 0, Math.PI*2); pctx.fillStyle = '#7dd3fc'; pctx.fill();
+
+    // if dragging, hint
+    if (isDragging){
+      pctx.font = `${12 * (window.devicePixelRatio||1)}px ${'Arial'}`;
+      pctx.fillStyle = 'rgba(255,255,255,0.7)';
+      pctx.fillText('Dragging — release to simulate', 12 * (window.devicePixelRatio||1), 20 * (window.devicePixelRatio||1));
+    }
+  }
+
+  function drawGraph(){
+    resizeCanvasToDisplaySize(graphCanvas);
+    const cw = graphCanvas.width; const ch = graphCanvas.height;
+    gctx.clearRect(0,0,cw,ch);
+
+    // background grid
+    gctx.fillStyle = 'rgba(255,255,255,0.01)'; gctx.fillRect(0,0,cw,ch);
+    gctx.strokeStyle = 'rgba(255,255,255,0.03)'; gctx.lineWidth = 1;
+    const steps = 8;
+    for (let i=0;i<=steps;i++){
+      const y = (i/steps)*ch; gctx.beginPath(); gctx.moveTo(0,y); gctx.lineTo(cw,y); gctx.stroke();
+    }
+
+    // draw axis and curve
+    if (history.t.length > 1){
+      // map history to last maxHistorySeconds
+      const tMax = history.t[history.t.length-1];
+      const tMin = Math.max(0, tMax - maxHistorySeconds);
+      // find theta bounds
+      let maxAbsTheta = 0;
+      for (let i=0;i<history.theta.length;i++) maxAbsTheta = Math.max(maxAbsTheta, Math.abs(history.theta[i]));
+      maxAbsTheta = Math.max(maxAbsTheta, 0.5); // keep scale reasonable
+
+      // draw curve
+      gctx.beginPath();
+      for (let i=0;i<history.t.length;i++){
+        const t = history.t[i];
+        if (t < tMin) continue;
+        const x = ((t - tMin) / (tMax - tMin || 1)) * cw;
+        const y = ch/2 - (history.theta[i] / maxAbsTheta) * (ch/2 * 0.85);
+        if ((i===0) || history.t[i-1] < tMin) gctx.moveTo(x,y); else gctx.lineTo(x,y);
+      }
+      gctx.strokeStyle = 'rgba(125,211,252,0.95)'; gctx.lineWidth = 2; gctx.stroke();
+
+      // axes labels
+      gctx.fillStyle = 'rgba(255,255,255,0.6)'; gctx.font = `${12 * (window.devicePixelRatio||1)}px ${'Arial'}`;
+      gctx.fillText('t (s)', cw - 40, ch - 10);
+      gctx.fillText('θ (rad)', 8, 16);
+    } else {
+      gctx.fillStyle = 'rgba(255,255,255,0.5)'; gctx.font = '14px Arial';
+      gctx.fillText('Start the pendulum to see the oscillation graph', 14, 24);
+    }
+  }
+
+  // --- Simulation loop ---
+  function update(dt){
+    // dt in seconds
+    const params = {g, L, m, b: (mode==='ideal'?0:b)};
+    // integrate
+    [theta, omega] = rk4Step(theta, omega, dt, params);
+
+    // keep angle normalized between -PI and PI for stability
+    if (theta > Math.PI*2 || theta < -Math.PI*2){
+      theta = ((theta + Math.PI) % (Math.PI*2)) - Math.PI;
+    }
+
+    // record history
+    simTime += dt; history.t.push(simTime); history.theta.push(theta);
+    // trim history
+    while (history.t.length > 0 && (history.t[history.t.length-1] - history.t[0]) > maxHistorySeconds){
+      history.t.shift(); history.theta.shift();
+    }
+  }
+
+  function loop(ts){
+    if (!lastTime) lastTime = ts; const dtMs = Math.min(40, ts - lastTime); // clamp to avoid big jumps
+    lastTime = ts;
+    if (running && !isDragging){
+      const dt = dtMs / 1000;
+      update(dt);
+    }
+    // update visuals and UI
+    drawPendulum(); drawGraph(); updateUI();
+    requestAnimationFrame(loop);
+  }
+
+  // --- UI update ---
+  function updateUI(){
+    lengthVal.textContent = Number(L).toFixed(2);
+    massVal.textContent = Number(m).toFixed(2);
+    gravityVal.textContent = Number(g).toFixed(2);
+    dampingVal.textContent = Number(b).toFixed(2);
+
+    // small-angle period approx
+    const smallAngleT = 2 * Math.PI * Math.sqrt(L / Math.max(0.0001,g));
+    periodEl.textContent = smallAngleT.toFixed(3) + ' s';
+
+    angleEl.textContent = (theta * 180/Math.PI).toFixed(2) + '°';
+    omegaEl.textContent = omega.toFixed(4) + ' rad/s';
+    const v = Math.abs(omega) * L;
+    speedEl.textContent = v.toFixed(4) + ' m/s';
+
+    const KE = 0.5 * m * (L * omega)*(L * omega);
+    const PE = m * g * L * (1 - Math.cos(theta));
+    const TE = KE + PE;
+    keEl.textContent = KE.toFixed(4) + ' J';
+    peEl.textContent = PE.toFixed(4) + ' J';
+    teEl.textContent = TE.toFixed(4) + ' J';
+  }
+
+  // --- Event handling: controls ---
+  lengthInput.addEventListener('input', e => { L = parseFloat(e.target.value); lengthVal.textContent = L.toFixed(2); });
+  massInput.addEventListener('input', e => { m = parseFloat(e.target.value); massVal.textContent = m.toFixed(2); });
+  gravityInput.addEventListener('input', e => { g = parseFloat(e.target.value); gravityVal.textContent = g.toFixed(2); });
+  dampingInput.addEventListener('input', e => { b = parseFloat(e.target.value); dampingVal.textContent = b.toFixed(2); });
+
+  startBtn.addEventListener('click', ()=>{ running = true; lastTime = null; });
+  pauseBtn.addEventListener('click', ()=>{ running = false; });
+  resetBtn.addEventListener('click', ()=>{ running = false; theta = Math.PI/6; omega = 0; simTime = 0; history.t = []; history.theta = []; lastTime = null; });
+
+  idealBtn.addEventListener('click', ()=>{ mode = 'ideal'; idealBtn.style.opacity = '1'; realBtn.style.opacity = '0.6'; });
+  realBtn.addEventListener('click', ()=>{ mode = 'real'; realBtn.style.opacity = '1'; idealBtn.style.opacity = '0.6'; });
+
+  // Pointer interaction on bob
+  function getPointerPos(evt){
+    const rect = pendulumCanvas.getBoundingClientRect();
+    const x = (evt.clientX - rect.left) * (pendulumCanvas.width / rect.width);
+    const y = (evt.clientY - rect.top) * (pendulumCanvas.height / rect.height);
+    return {x,y,rect};
+  }
+
+  function pointerDown(evt){
+    const p = getPointerPos(evt);
+    // compute pivot in canvas coordinates
+    const pivotX = pendulumCanvas.width/2; const pivotY = Math.min(80, pendulumCanvas.height*0.08);
+    const scale = pixelsPerMeter();
+    const bobX = pivotX + Math.sin(theta) * L * scale;
+    const bobY = pivotY + Math.cos(theta) * L * scale;
+    const rect = pendulumCanvas.getBoundingClientRect();
+    const deg = window.devicePixelRatio || 1;
+    const dx = p.x - bobX; const dy = p.y - bobY;
+    const bobR = Math.max(10, 16 * Math.sqrt(m));
+    if (Math.hypot(dx,dy) <= bobR * (window.devicePixelRatio || 1) + 6){
+      isDragging = true; dragId = evt.pointerId; pendulumCanvas.setPointerCapture(dragId);
+      // while dragging, we freeze motion
+      omega = 0;
+      running = false; // optionally stop until release
+    }
+  }
+
+  function pointerMove(evt){
+    if (!isDragging || evt.pointerId !== dragId) return;
+    const p = getPointerPos(evt);
+    const pivotX = pendulumCanvas.width/2; const pivotY = Math.min(80, pendulumCanvas.height*0.08);
+    const dx = (p.x - pivotX); const dy = (p.y - pivotY);
+    const scale = pixelsPerMeter();
+    // compute new angle from vertical
+    const newTheta = Math.atan2(dx, dy) * 1.0; // atan2(x,y) -> angle from vertical
+    theta = newTheta;
+    omega = 0; // while dragging
+  }
+
+  function pointerUp(evt){
+    if (!isDragging || evt.pointerId !== dragId) return;
+    isDragging = false; pendulumCanvas.releasePointerCapture(dragId); dragId = null;
+    // release: start running (user wanted oscillations)
+    running = true; lastTime = null;
+  }
+
+  pendulumCanvas.addEventListener('pointerdown', pointerDown);
+  window.addEventListener('pointermove', pointerMove);
+  window.addEventListener('pointerup', pointerUp);
+  pendulumCanvas.addEventListener('pointercancel', pointerUp);
+
+  // resize observers
+  const ro = new ResizeObserver(()=>{ resizeCanvasToDisplaySize(pendulumCanvas); resizeCanvasToDisplaySize(graphCanvas); drawPendulum(); drawGraph(); });
+  ro.observe(simArea); ro.observe(graphCanvas);
+
+  // start loop
+  requestAnimationFrame(loop);
+
+  // initial UI update
+  updateUI();
+
+  // Make sure the pivot element is positioned in the sim-area center
+  function positionPivot(){
+    const rect = simArea.getBoundingClientRect();
+    const left = rect.left + rect.width/2;
+    const styleLeft = rect.width/2 + 'px';
+    pivotEl.style.left = '50%';
+    pivotEl.style.top = Math.min(80, rect.height*0.08) + 'px';
+  }
+  positionPivot();
+  window.addEventListener('resize', positionPivot);
+
+  // Accessibility: keyboard controls (optional)
+  window.addEventListener('keydown', (e)=>{
+    if (e.key === ' '){ running = !running; }
+    if (e.key === 'r'){ theta = Math.PI/6; omega = 0; history.t = []; history.theta = []; simTime = 0; }
+  });
+  </script>
+</body>
+</html>
